@@ -6,6 +6,14 @@ import random
 import matplotlib.pyplot as plt
 import matplotlib
 import copy
+from sklearn.model_selection import train_test_split, cross_validate, KFold
+from sklearn.metrics import roc_auc_score
+import numpy as np
+import pandas as pd
+import random
+import matplotlib.pyplot as plt
+import matplotlib
+import copy
 
 def gini(x):
     p = sum(x) / len(x)
@@ -33,7 +41,7 @@ class DecisionTreeNode:
         self.right = right
 
 class DecisionTreeClassifier:
-    def __init__(self, criterion="gini", max_depth=None, min_samples_leaf=1):
+    def __init__(self, criterion="gini", max_depth=None, min_samples_leaf=1, splitter="best"):
         if criterion == 'gini':
             self.criterion = gini
         else:
@@ -41,6 +49,7 @@ class DecisionTreeClassifier:
         self.root = None
         self.max_depth = max_depth
         self.min_samples_leaf = min_samples_leaf
+        self.splitter = splitter
     
     def dfs(self, X, y, depth):
         if len(np.unique(y)) == 1 or len(y) <= self.min_samples_leaf or depth == self.max_depth: 
@@ -51,13 +60,24 @@ class DecisionTreeClassifier:
         max_gain_dim = None 
         for i, dim_str in enumerate(X.columns):
             dim = X[dim_str]
-            split_val = np.random.choice(dim) 
-            left_y = y.loc[dim < split_val]
-            right_y = y.loc[dim >= split_val]
-            if any(left_y) and any(right_y):
-                cur_gain = gain(left_y, right_y, self.criterion)
-                if cur_gain > max_gain:
-                    max_gain, max_split_val, max_gain_dim, max_gain_index = cur_gain, split_val, dim_str, i    
+            if self.splitter == "best":
+                for cur_split_val in np.unique(dim):
+                    left_y = y.loc[dim < cur_split_val]
+                    right_y = y.loc[dim >= cur_split_val]
+                    if len(left_y) and len(right_y):
+                        cur_gain = gain(left_y, right_y, self.criterion)
+                        if cur_gain > max_gain:
+                            max_gain, max_split_val, max_gain_dim, max_gain_index = cur_gain, cur_split_val, dim_str, i
+            elif self.splitter == "random":
+                split_val = np.random.choice(dim) 
+                left_y = y.loc[dim < split_val]
+                right_y = y.loc[dim >= split_val]
+                if len(left_y) and len(right_y):
+                    cur_gain = gain(left_y, right_y, self.criterion)
+                    if cur_gain > max_gain:
+                        max_gain, max_split_val, max_gain_dim, max_gain_index = cur_gain, split_val, dim_str, i    
+            else:
+                raise RuntimeError("Wrong splitter identifier")
 
         if not max_split_val:
             return DecisionTreeLeaf(y)
@@ -77,8 +97,12 @@ class DecisionTreeClassifier:
         
     def predict_instance(self, cur_root, x):
         if isinstance(cur_root, DecisionTreeLeaf):
-            p = sum(cur_root.y) / len(cur_root.y)
-            return {1: p, 0: 1-p}
+            proba = {}
+            l = len(cur_root.y)
+            values, counts = np.unique(cur_root.y, return_counts=True)
+            for v, c in zip(values, counts):
+                proba[v] = c / l
+            return proba
         else:
             return self.predict_instance(cur_root.left if x[cur_root.split_dim] < cur_root.split_value else cur_root.right, x)
     
